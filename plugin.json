@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "herdr",
+  "version": "0.1.0",
+  "description": "Drive herdr (the terminal multiplexer for coding agents) on the user's laptop safely: one-call snapshots, name-addressed agent prompts, commands with real exit codes, a 7-tab cap, and close-only-what-you-created ownership.",
+  "author": { "name": "Goddy Bush" },
+  "license": "MIT",
+  "keywords": ["herdr", "terminal", "multiplexer", "agents", "mcp", "tailscale"]
+}

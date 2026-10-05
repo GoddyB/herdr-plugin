@@ -1,0 +1,15 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "herdr": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["server/herdr-mcp.mjs"],
+      "cwd": "${PLUGIN_ROOT}",
+      "env": {
+        "HERDR_TRANSPORT": "ssh",
+        "HERDR_HOST": "laptop"
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "herdr-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent Plugin wrapping the herdr CLI behind a safe, zero-dependency stdio MCP server.",
+  "scripts": {
+    "test": "node --test test/",
+    "handshake": "node scripts/handshake.mjs",
+    "live-proof": "node scripts/live-proof.mjs"
+  },
+  "author": "Goddy Bush",
+  "license": "MIT"
+}

@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+// Fake herdr for tests. State in $FAKE_HERDR_STATE (JSON), every argv appended to $FAKE_HERDR_LOG.
+// Mirrors the JSON shapes captured from real herdr 0.9.0 (docs/samples/).
+const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
+const argv = process.argv.slice(2);
+const stateFile = process.env.FAKE_HERDR_STATE;
+const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+if (process.env.FAKE_HERDR_LOG) fs.appendFileSync(process.env.FAKE_HERDR_LOG, JSON.stringify(argv) + '\n');
+const save = () => fs.writeFileSync(stateFile, JSON.stringify(st));
+const [group, verb, ...rest] = argv;
+const key = `${group} ${verb}`;
+const id = `cli:${group}:${verb}`;
+const ok = (result) => { process.stdout.write(JSON.stringify({ id, result }) + '\n'); save(); process.exit(0); };
+const err = (code, message) => { process.stderr.write(JSON.stringify({ error: { code, message }, id }) + '\n'); save(); process.exit(1); };
+const flag = (n) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
+if (!group) { process.stderr.write('bare herdr would attach the TUI\n'); process.exit(99); }
+if (argv.includes('--group')) { process.stderr.write('FORBIDDEN --group\n'); process.exit(98); }
+if (st.errors?.[key]) { const e = st.errors[key]; err(e.code, e.message); }
+const ws = (wid) => st.workspaces.find((w) => w.workspace_id === wid);
+const tabsIn = (wid) => st.tabs.filter((t) => t.workspace_id === wid);
+const wsOut = (w) => ({ ...w, tab_count: tabsIn(w.workspace_id).length, pane_count: tabsIn(w.workspace_id).length });
+const pane = (pid) => st.panes.find((p) => p.pane_id === pid);
+const agent = (t) => st.panes.find((p) => p.agent && (p.name === t || p.pane_id === t));
+st.seq = st.seq || 100;
+switch (key) {
+  case 'workspace list': ok({ type: 'workspace_list', workspaces: st.workspaces.map(wsOut) });
+  case 'workspace get': { const w = ws(rest[0]); if (!w) err('workspace_not_found', `workspace ${rest[0]} not found`); ok({ type: 'workspace_info', workspace: wsOut(w) }); }
+  case 'workspace create': {
+    const wid = `w${++st.seq}`; const w = { workspace_id: wid, label: flag('--label') || String(st.seq), number: st.workspaces.length + 1, agent_status: 'unknown', focused: !rest.includes('--no-focus'), active_tab_id: `${wid}:t1` };
+    st.workspaces.push(w); const t = { tab_id: `${wid}:t1`, workspace_id: wid, label: '1', number: 1, pane_count: 1, agent_status: 'unknown', focused: false };
+    st.tabs.push(t); const p = { pane_id: `${wid}:p1`, tab_id: t.tab_id, workspace_id: wid, agent_status: 'unknown' }; st.panes.push(p);
+    ok({ type: 'workspace_created', workspace: wsOut(w), tab: t, root_pane: p });
+  }
+  case 'workspace close': { const w = ws(rest[0]); if (!w) err('workspace_not_found', `workspace ${rest[0]} not found`);
+    st.workspaces = st.workspaces.filter((x) => x !== w); st.tabs = st.tabs.filter((t) => t.workspace_id !== rest[0]); ok({ type: 'ok' }); }
+  case 'tab list': ok({ type: 'tab_list', tabs: flag('--workspace') ? tabsIn(flag('--workspace')) : st.tabs });
+  case 'tab get': { const t = st.tabs.find((x) => x.tab_id === rest[0]); if (!t) err('tab_not_found', `tab ${rest[0]} not found`); ok({ type: 'tab_info', tab: t }); }
+  case 'tab create': {
+    const wid = flag('--workspace'); if (!ws(wid)) err('workspace_not_found', `workspace ${wid} not found`);
+    const n = ++st.seq; const t = { tab_id: `${wid}:t${n}`, workspace_id: wid, label: flag('--label') || String(n), number: tabsIn(wid).length + 1, pane_count: 1, agent_status: 'unknown', focused: false };
+    st.tabs.push(t); const p = { pane_id: `${wid}:p${n}`, tab_id: t.tab_id, workspace_id: wid, agent_status: 'unknown' }; st.panes.push(p);
+    ok({ type: 'tab_created', tab: t, root_pane: p });
+  }
+  case 'tab close': { const t = st.tabs.find((x) => x.tab_id === rest[0]); if (!t) err('tab_not_found', `tab ${rest[0]} not found`); st.tabs = st.tabs.filter((x) => x !== t); ok({ type: 'ok' }); }
+  case 'tab rename': { const t = st.tabs.find((x) => x.tab_id === rest[0]); if (!t) err('tab_not_found', 'nf'); t.label = rest[1]; ok({ type: 'tab_info', tab: t }); }
+  case 'pane get': { const p = pane(rest[0]); if (!p) err('pane_not_found', `pane ${rest[0]} not found`); ok({ type: 'pane_info', pane: p }); }
+  case 'pane list': ok({ type: 'pane_list', panes: st.panes.filter((p) => !flag('--workspace') || p.workspace_id === flag('--workspace')) });
+  case 'pane run': {
+    const p = pane(rest[0]); if (!p) err('pane_not_found', 'nf');
+    let out = '';
+    try { out = execFileSync('sh', ['-c', rest[1]], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { out = (e.stdout || '') + (e.stderr || ''); }
+    p.text = `${rest[1]}\n\n$ prompt\n ${rest[1]}\n${out}\n$ prompt\n`;
+    process.exit((save(), 0));
+  }
+  case 'pane wait-output': {
+    const p = pane(rest[0]); const re = new RegExp(flag('--regex'));
+    const line = (p.text || '').split('\n').find((l) => re.test(l) && !l.includes('%s'));
+    if (!line) err('timeout', 'timed out waiting for output match');
+    ok({ type: 'output_matched', matched_line: line, pane_id: p.pane_id, read: { text: p.text, source: 'recent_unwrapped' } });
+  }
+  case 'pane read': { const p = pane(rest[0]); process.stdout.write(p.text || '$ \n'); process.exit(0); }
+  case 'agent list': ok({ type: 'agent_list', agents: st.panes.filter((p) => p.agent) });
+  case 'agent get': { const a = agent(rest[0]); if (!a) err('agent_not_found', `agent target ${rest[0]} not found`); ok({ type: 'agent_info', agent: a }); }
+  case 'agent read': { const a = agent(rest[0]); if (!a) err('agent_not_found', 'nf'); process.stdout.write(`[${flag('--source')}] ${a.screen || ''}\n`); process.exit(0); }
+  case 'agent prompt': { const a = agent(rest[0]); if (!a) err('agent_not_found', `agent target ${rest[0]} not found`);
+    if (a.agent_status === 'blocked') err('agent_blocked', 'agent is blocked');
+    if (a.stall) err('agent_prompt_stalled', 'no activity within 5s');
+    a.screen = `got: ${rest[1]}`; ok({ type: 'agent_prompt', status: 'idle' }); }
+  case 'agent start': { const p = pane(flag('--pane')); if (!p) err('pane_not_found', 'nf'); if (p.agent) err('agent_pane_busy', 'busy');
+    Object.assign(p, { agent: flag('--kind'), name: rest[0], agent_status: 'idle' }); ok({ type: 'agent_info', agent: p }); }
+  case 'notification show': ok({ type: 'ok' });
+  case 'worktree list': ok({ type: 'worktree_list', worktrees: st.worktrees || [] });
+  default: process.stderr.write(`usage: herdr ${key}\n`); process.exit(2);
+}
