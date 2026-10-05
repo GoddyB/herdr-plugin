@@ -5,7 +5,7 @@
       "type": "stdio",
       "command": "node",
       "args": ["server/herdr-mcp.mjs"],
-      "cwd": "${PLUGIN_ROOT}",
+      "cwd": "./",
       "env": {
         "HERDR_TRANSPORT": "ssh",
         "HERDR_HOST": "laptop"
